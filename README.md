@@ -1,4 +1,4 @@
-# Linphone Desktop
+# Linphone Desktop ~(Custom version)
 
 Linphone is an open source softphone for voice and video over IP calling and instant messaging.
 
