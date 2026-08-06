@@ -196,6 +196,27 @@ void CallModel::stopRecording() {
 	emit recordingChanged(mMonitor, mMonitor->getParams()->isRecording());
 }
 
+void CallModel::startAutomaticRecording(const std::shared_ptr<linphone::Call> &call) {
+	mustBeInLinphoneThread(log().arg(Q_FUNC_INFO));
+	if (mAutoRecordStarted) return;
+	// Conferences are not supported: their recording is handled by the conference itself.
+	if (call->getConference()) return;
+	auto settingsModel = SettingsModel::getInstance();
+	if (!settingsModel || settingsModel->getDisableCallRecordings() ||
+	    !settingsModel->getAutomaticallyRecordCallsEnabled())
+		return;
+	// The record file is set when the call is created or accepted. It may be missing when the call has been
+	// answered without going through the application (from the command line for example).
+	if (call->getParams()->getRecordFile().empty()) {
+		lWarning() << log().arg("Automatic call recording is enabled but no record file is set on this call, "
+		                        "recording is skipped");
+		return;
+	}
+	mAutoRecordStarted = true;
+	lInfo() << log().arg("Automatic call recording is enabled, start recording");
+	startRecording();
+}
+
 void CallModel::setRecordFile(const std::string &path) {
 	mustBeInLinphoneThread(log().arg(Q_FUNC_INFO));
 	auto core = CoreModel::getInstance()->getCore();
@@ -485,8 +506,13 @@ void CallModel::onStateChanged(const std::shared_ptr<linphone::Call> &call,
 		emit remoteVideoEnabledChanged(remoteVideoDirection == linphone::MediaDirection::SendOnly ||
 		                               remoteVideoDirection == linphone::MediaDirection::SendRecv);
 		updateConferenceVideoLayout();
+		startAutomaticRecording(call);
 	} else if (state == linphone::Call::State::End || state == linphone::Call::State::Error) {
 		mDurationTimer.stop();
+		// The user usually hangs up without stopping the recording: close it explicitly so that the media file is
+		// finalized and the "record saved" notification is displayed. Also covers manual recordings.
+		auto params = call->getParams();
+		if (params && params->isRecording()) stopRecording();
 		updateCallErrorFromReason(call->getReason());
 	}
 	emit stateChanged(call, state, message);

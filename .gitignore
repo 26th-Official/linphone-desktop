@@ -45,6 +45,7 @@ linphone.spec
 # Exceptions -------------------------------------------------------------------
 
 !.clang-format
+!.github
 !.gitignore
 !.gitlab-ci*
 !.gitmodules

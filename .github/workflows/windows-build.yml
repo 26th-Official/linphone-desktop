@@ -1,0 +1,148 @@
+name: Windows Build
+
+# You asked for a build on every commit. A cold build compiles the whole
+# linphone-sdk from source and can take hours, so `concurrency` below cancels an
+# in-flight run as soon as a newer commit lands instead of queueing them up.
+on:
+  push:
+  workflow_dispatch:
+
+concurrency:
+  group: windows-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: Build Windows installer (MSVC 2022)
+    # The project supports Visual Studio 2022 only (README.md "Specific
+    # instructions for the Windows platform"). If GitHub retires this label,
+    # switch to windows-2025 -- it still ships VS 2022.
+    runs-on: windows-2022
+    # 360 is the hard ceiling GitHub allows on hosted runners; we cannot ask for more.
+    timeout-minutes: 360
+
+    env:
+      BUILD_DIR: build-desktop
+      BUILD_TYPE: RelWithDebInfo
+      QT_VERSION: 6.10.0
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # linphone-sdk and its own submodules are hosted on gitlab.linphone.org.
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Report disk space
+        shell: pwsh
+        run: Get-PSDrive -PSProvider FileSystem | Select-Object Name, Used, Free | Format-Table
+
+      - name: Exclude workspace from Windows Defender
+        shell: pwsh
+        # Real-time scanning of every object file costs 20-30% on a large C++ build.
+        continue-on-error: true
+        run: |
+          Add-MpPreference -ExclusionPath "${{ github.workspace }}"
+          foreach ($proc in 'cl.exe', 'link.exe', 'ninja.exe', 'cmake.exe', 'makensis.exe') {
+            Add-MpPreference -ExclusionProcess $proc
+          }
+
+      - name: Set up MSVC environment (x64)
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python build dependencies
+        # The SDK wrapper generators need these (README.md build dependencies).
+        run: python -m pip install --upgrade pip pystache six
+
+      - name: Install Qt ${{ env.QT_VERSION }}
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          modules: qtnetworkauth qtshadertools
+          cache: true
+
+      - name: Install Ninja
+        uses: seanmiddleditch/gha-setup-ninja@v5
+
+      - name: Install MSYS2 build tools
+        shell: pwsh
+        run: |
+          # makensis builds the installer; the rest are SDK third-party build
+          # requirements listed under ENABLE_WINDOWS_TOOLS_CHECK in the README.
+          C:\msys64\usr\bin\pacman.exe -Sy --noconfirm --needed `
+            mingw-w64-x86_64-nsis `
+            mingw-w64-x86_64-yasm `
+            mingw-w64-x86_64-nasm `
+            perl gawk bzip2 sed patch pkg-config gettext intltool
+
+      - name: Configure environment (Qt6_DIR and MSYS2 on PATH)
+        shell: pwsh
+        run: |
+          # MSYS2 is APPENDED, never prepended: it ships its own link.exe which
+          # would otherwise shadow the MSVC linker and break the build. Order
+          # within the MSYS2 entries follows the README.
+          $msys = "C:\msys64\mingw64\bin;C:\msys64;C:\msys64\usr\bin"
+          Add-Content -Path $env:GITHUB_ENV -Value "PATH=$env:PATH;$msys"
+          Add-Content -Path $env:GITHUB_ENV -Value "Qt6_DIR=$env:QT_ROOT_DIR\lib\cmake\Qt6"
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake -S . -B $env:BUILD_DIR -G Ninja `
+            -DCMAKE_BUILD_TYPE=$env:BUILD_TYPE `
+            -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DCMAKE_RC_COMPILER=rc `
+            -DENABLE_APP_PACKAGING=YES `
+            -DENABLE_WINDOWS_TOOLS_CHECK=ON `
+            -DENABLE_CRASH_HANDLER=OFF `
+            -DENABLE_UNIT_TESTS=OFF `
+            -DENABLE_TESTS=OFF `
+            -DENABLE_TESTS_COMPONENTS=OFF `
+            -DENABLE_TOOLS=OFF `
+            -DENABLE_DOC=OFF `
+            -DENABLE_GPL_THIRD_PARTIES=OFF `
+            -DCMAKE_BUILD_PARALLEL_LEVEL=4
+
+      - name: Build and install
+        shell: pwsh
+        run: |
+          $start = Get-Date
+          cmake --build $env:BUILD_DIR --target install --parallel 4
+          # Printed so we can tune the workflow against a real number rather than a guess.
+          Write-Host "Build duration: $((Get-Date) - $start)"
+
+      - name: Report disk space after build
+        if: always()
+        shell: pwsh
+        run: Get-PSDrive -PSProvider FileSystem | Select-Object Name, Used, Free | Format-Table
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: linphone-windows-installer
+          # packaging.cmake.in copies the NSIS installer into OUTPUT/Packages.
+          path: ${{ env.BUILD_DIR }}/OUTPUT/Packages/*.exe
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload CMake logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cmake-logs
+          path: |
+            ${{ env.BUILD_DIR }}/CMakeCache.txt
+            ${{ env.BUILD_DIR }}/CMakeFiles/CMakeConfigureLog.yaml
+            ${{ env.BUILD_DIR }}/CMakeFiles/*.log
+          if-no-files-found: ignore
+          retention-days: 7

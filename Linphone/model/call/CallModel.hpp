@@ -48,6 +48,7 @@ public:
 	void setCameraEnabled(bool enabled);
 	void startRecording();
 	void stopRecording();
+	void startAutomaticRecording(const std::shared_ptr<linphone::Call> &call);
 	void setRecordFile(const std::string &path);
 	void setInputAudioDevice(const std::shared_ptr<linphone::AudioDevice> &id);
 	std::shared_ptr<const linphone::AudioDevice> getInputAudioDevice() const;
@@ -114,6 +115,9 @@ signals:
 private:
 	QTimer mDurationTimer;
 	QTimer mMicroVolumeTimer;
+	// Ensure automatic recording is started only once per call: StreamsRunning is entered again after each
+	// resume/update and we must not override a manual stop from the user.
+	bool mAutoRecordStarted = false;
 	std::shared_ptr<linphone::Conference> mConference;
 	LinphoneEnums::ConferenceLayout mConferenceVideoLayout;
 	static constexpr int gDtmfSoundDelay = 200;
