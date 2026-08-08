@@ -127,9 +127,18 @@ jobs:
       - name: Configure
         shell: pwsh
         run: |
+          # Both the SDK and the app derive their version from `git describe`, which needs
+          # annotated tags. The SDK mirror is a flattened single-commit snapshot with no
+          # tags, so bctoolbox's bc_compute_full_version() aborts with "fail to get GIT
+          # describe version". Passing the versions explicitly takes the documented
+          # override path (`if(NOT LINPHONESDK_VERSION)`) and skips git entirely.
+          # Keep LINPHONESDK_VERSION in step with the pinned SDK commit in
+          # external/linphone-sdk; both must be plain semver for bc_parse_full_version.
           cmake -S . -B $env:BUILD_DIR -G Ninja `
             -DCMAKE_BUILD_TYPE=$env:BUILD_TYPE `
             -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DCMAKE_RC_COMPILER=rc `
+            -DLINPHONESDK_VERSION=5.5.0 `
+            -DLINPHONEAPP_VERSION=6.2.0 `
             -DENABLE_APP_PACKAGING=YES `
             -DENABLE_WINDOWS_TOOLS_CHECK=ON `
             -DENABLE_CRASH_HANDLER=OFF `
