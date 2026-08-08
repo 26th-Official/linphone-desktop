@@ -135,11 +135,25 @@ jobs:
           #   3. powershell.exe must be Windows PowerShell (System32), never an MSYS2 stub.
           #   4. python must stay the setup-python one (it has pystache/six installed),
           #      not MSYS2's -- so its directory is pinned ahead of MSYS2.
+          #   5. msys64\mingw64\bin holds gcc/cc/c++. It must NOT precede the MSVC paths:
+          #      aom is an ExternalProject whose nested CMake does its own compiler probe
+          #      and forwards no compiler, so it picked cc.exe (GNU 16.1.0) and produced
+          #      libaom.a -- GNU naming that MSVC cannot link ("cannot open file
+          #      OUTPUT\lib\aom.lib"). usr\bin (sh/bash/make/perl/sed) is safe to lead;
+          #      mingw64\bin is appended so nasm/yasm/meson still resolve.
           $py     = Split-Path (Get-Command python).Source
-          $msys   = "C:\msys64\usr\bin;C:\msys64\mingw64\bin;C:\msys64"
+          $msysu  = "C:\msys64\usr\bin"
+          $msysm  = "C:\msys64\mingw64\bin;C:\msys64"
           $sys32  = "$env:SystemRoot\system32;$env:SystemRoot;$env:SystemRoot\System32\WindowsPowerShell\v1.0"
-          Add-Content -Path $env:GITHUB_ENV -Value "PATH=$py;$msys;$sys32;$env:PATH"
+          Add-Content -Path $env:GITHUB_ENV -Value "PATH=$py;$msysu;$sys32;$env:PATH;$msysm"
           Add-Content -Path $env:GITHUB_ENV -Value "Qt6_DIR=$env:QT_ROOT_DIR\lib\cmake\Qt6"
+
+          # ExternalProjects run their own nested CMake and do not inherit our
+          # -DCMAKE_C_COMPILER flags. CC/CXX are honoured by CMake's compiler probe, so
+          # setting them here pins MSVC for every nested configure even if some future
+          # PATH change puts a gcc back in front.
+          Add-Content -Path $env:GITHUB_ENV -Value "CC=cl"
+          Add-Content -Path $env:GITHUB_ENV -Value "CXX=cl"
 
           # These steps run under pwsh (PowerShell 7), which sets PSModulePath to PS7's
           # module directories. CMake inherits that, then rnnoise invokes Windows
@@ -233,6 +247,24 @@ jobs:
             }
           }
           Write-Host "sh/bash/make all resolve to msys64 and execute"
+          # No GNU compiler may precede MSVC. ExternalProjects (aom) run a nested CMake
+          # that probes the compiler itself and forwards none of our -D flags: it found
+          # C:/msys64/mingw64/bin/cc.exe (GNU 16.1.0) and emitted libaom.a instead of
+          # aom.lib, so the mediastreamer2 link failed 1546 targets in.
+          $msvcDir = Split-Path (Get-Command cl.exe).Source
+          foreach ($t in 'cc.exe','gcc.exe','c++.exe','g++.exe') {
+            $p = (Get-Command $t -EA SilentlyContinue).Source
+            if ($p) {
+              Write-Host "$t resolves to: $p"
+              $gnuIdx  = $env:PATH.ToLower().IndexOf((Split-Path $p).ToLower())
+              $msvcIdx = $env:PATH.ToLower().IndexOf($msvcDir.ToLower())
+              if ($gnuIdx -ge 0 -and $msvcIdx -ge 0 -and $gnuIdx -lt $msvcIdx) {
+                Write-Host "::error::$t at $p precedes MSVC on PATH; nested ExternalProject CMake will build GNU-named libs"
+                exit 1
+              }
+            }
+          }
+          Write-Host "No GNU compiler precedes MSVC on PATH"
           # python must be the setup-python one; MSYS2's lacks pystache/six, which the
           # SDK's wrapper generators import.
           $pyp = (Get-Command python.exe -EA SilentlyContinue).Source
