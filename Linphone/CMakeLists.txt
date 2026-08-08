@@ -92,13 +92,22 @@ execute_process(
     OUTPUT_STRIP_TRAILING_WHITESPACE
 )
 
-set(LINPHONESDK_VERSION)
-execute_process(
-    COMMAND git describe
-    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/external/linphone-sdk
-    OUTPUT_VARIABLE LINPHONESDK_VERSION
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-)
+# Do not clobber an explicitly provided LINPHONESDK_VERSION. `git describe` needs
+# annotated tags, which a flattened SDK checkout (as used by CI) does not have: it
+# would leave this empty, config.h.cmake's #cmakedefine would then emit nothing, and
+# CoreModel.cpp would fail to compile on an undeclared LINPHONESDK_VERSION.
+if(NOT LINPHONESDK_VERSION)
+    execute_process(
+        COMMAND git describe
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/external/linphone-sdk
+        OUTPUT_VARIABLE LINPHONESDK_VERSION
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+endif()
+if(NOT LINPHONESDK_VERSION)
+    set(LINPHONESDK_VERSION "unknown")
+endif()
 
 include(application_info.cmake)
 string(TIMESTAMP CURRENT_YEAR "%Y")
