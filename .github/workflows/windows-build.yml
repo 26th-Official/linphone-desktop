@@ -144,6 +144,28 @@ jobs:
           ) -join ';'
           Add-Content -Path $env:GITHUB_ENV -Value "PSModulePath=$psmod"
 
+      - name: Neutralize GNU link.exe (shadows the MSVC linker under meson)
+        shell: pwsh
+        run: |
+          # dav1d is built with meson, driven by a generated /bin/sh script whose PATH is
+          # simply `export PATH="$PATH"` (linphone-sdk cmake/ExternalDependencies.cmake:317),
+          # i.e. it inherits whatever the shell set up. Both Git-for-Windows and MSYS2 ship
+          # a GNU link.exe (the POSIX link(1) utility) in usr/bin, and their sh prepends its
+          # own usr/bin to PATH -- so meson finds GNU link.exe and aborts with
+          # "Found GNU link.exe instead of MSVC link.exe".
+          # Reordering PATH cannot fix this: whichever sh wins puts its own usr/bin first.
+          # Renaming the offender is the standard remedy; nothing in this build uses link(1).
+          $renamed = 0
+          foreach ($d in "$env:ProgramFiles\Git\usr\bin", 'C:\msys64\usr\bin') {
+            $l = Join-Path $d 'link.exe'
+            if (Test-Path $l) {
+              Move-Item $l (Join-Path $d 'link-gnu.exe') -Force
+              Write-Host "renamed $l -> link-gnu.exe"
+              $renamed++
+            }
+          }
+          Write-Host "GNU link.exe copies neutralized: $renamed"
+
       - name: Verify toolchain resolution
         shell: pwsh
         run: |
@@ -154,11 +176,28 @@ jobs:
             Write-Host "::error::MSYS2 powershell shadows Windows PowerShell; Get-FileHash would fail"
             exit 1
           }
+          # Assert these resolve to MSVC positively. An earlier version only rejected
+          # msys64 paths, which let Git's usr/bin GNU link.exe through and broke the
+          # dav1d meson configure ~15 minutes into the run.
           foreach ($t in 'link.exe','cl.exe') {
             $p = (Get-Command $t -EA SilentlyContinue).Source
             Write-Host "$t resolves to: $p"
-            if ($p -like "*msys64*") { Write-Host "::error::MSYS2 $t shadows the MSVC toolchain"; exit 1 }
+            if (-not $p) { Write-Host "::error::$t not found on PATH"; exit 1 }
+            if ($p -notmatch 'VC\\Tools\\MSVC') {
+              Write-Host "::error::$t resolves to '$p', not the MSVC toolchain"
+              exit 1
+            }
           }
+          # Meson resolves the linker through /bin/sh, which prepends its own usr/bin.
+          # Confirm no GNU link.exe survives in either shell's bin directory.
+          foreach ($d in "$env:ProgramFiles\Git\usr\bin", 'C:\msys64\usr\bin') {
+            $l = Join-Path $d 'link.exe'
+            if (Test-Path $l) {
+              Write-Host "::error::GNU link.exe still present at $l; meson will pick it over MSVC"
+              exit 1
+            }
+          }
+          Write-Host "No GNU link.exe shadowing the MSVC linker"
           # Probe Get-FileHash exactly as rnnoise does -- through cmake's execute_process,
           # not directly from pwsh. A direct call succeeds even when the nested one fails,
           # because the environment CMake hands to its child differs from this shell's.
