@@ -108,27 +108,37 @@ jobs:
         run: |
           # makensis builds the installer; the rest are SDK third-party build
           # requirements listed under ENABLE_WINDOWS_TOOLS_CHECK in the README.
+          # make/meson/ninja are installed explicitly rather than left to the SDK's own
+          # tools check: that check runs during configure, i.e. after the verification
+          # step below, so a missing tool would surface as a late failure instead of a
+          # fast one. libvpx and openh264 are Makefile builds; dav1d/aom use meson.
           C:\msys64\usr\bin\pacman.exe -Sy --noconfirm --needed `
             mingw-w64-x86_64-nsis `
             mingw-w64-x86_64-yasm `
             mingw-w64-x86_64-nasm `
-            perl gawk bzip2 sed patch pkg-config gettext intltool
+            mingw-w64-x86_64-meson `
+            mingw-w64-x86_64-ninja `
+            make perl gawk bzip2 sed patch pkg-config gettext intltool
 
       - name: Configure environment (Qt6_DIR and MSYS2 on PATH)
         shell: pwsh
         run: |
-          # MSYS2 is APPENDED, never prepended, for two reasons:
-          #   - it ships link.exe, which would shadow the MSVC linker;
-          #   - it ships a `powershell` stub, which would shadow Windows PowerShell.
-          # rnnoise/CMakeLists.txt verifies its model download with
-          # `powershell -Command "Get-FileHash ..."`. If the MSYS2 stub wins, Get-FileHash
-          # does not exist, the computed hash is empty, and the checksum check aborts
-          # configure with a blank "computed:" value.
-          # System32 is placed first explicitly so the real powershell.exe always wins,
-          # regardless of how the runner image happens to order PATH.
-          $sys32 = "$env:SystemRoot\system32;$env:SystemRoot;$env:SystemRoot\System32\WindowsPowerShell\v1.0"
-          $msys  = "C:\msys64\mingw64\bin;C:\msys64;C:\msys64\usr\bin"
-          Add-Content -Path $env:GITHUB_ENV -Value "PATH=$sys32;$env:PATH;$msys"
+          # PATH order has to satisfy four competing requirements:
+          #   1. sh AND bash must be real POSIX shells. System32 ships WSL launchers
+          #      (bash.exe/wsl.exe) and this image has WSL with NO distro, so libvpx's
+          #      gen_msvs_def.sh (shebang: #!/bin/bash) dies with "Windows Subsystem for
+          #      Linux has no installed distributions". The SDK hardcodes the literal
+          #      "sh" in ExternalDependencies.cmake, so PATH is the only lever.
+          #   2. sh/bash and make should come from the SAME MSYS2 runtime. Mixing Git for
+          #      Windows' msys-2.0.dll with C:\msys64's can abort with a cygheap mismatch
+          #      when make forks a shell.
+          #   3. powershell.exe must be Windows PowerShell (System32), never an MSYS2 stub.
+          #   4. python must stay the setup-python one (it has pystache/six installed),
+          #      not MSYS2's -- so its directory is pinned ahead of MSYS2.
+          $py     = Split-Path (Get-Command python).Source
+          $msys   = "C:\msys64\usr\bin;C:\msys64\mingw64\bin;C:\msys64"
+          $sys32  = "$env:SystemRoot\system32;$env:SystemRoot;$env:SystemRoot\System32\WindowsPowerShell\v1.0"
+          Add-Content -Path $env:GITHUB_ENV -Value "PATH=$py;$msys;$sys32;$env:PATH"
           Add-Content -Path $env:GITHUB_ENV -Value "Qt6_DIR=$env:QT_ROOT_DIR\lib\cmake\Qt6"
 
           # These steps run under pwsh (PowerShell 7), which sets PSModulePath to PS7's
@@ -198,6 +208,49 @@ jobs:
             }
           }
           Write-Host "No GNU link.exe shadowing the MSVC linker"
+          # POSIX shells: sh is used by the SDK's generated EP_*.sh scripts, bash by
+          # libvpx's gen_msvs_def.sh (#!/bin/bash). Both must be real shells from the
+          # SAME msys2 runtime as make, not WSL launchers out of System32.
+          foreach ($t in 'sh.exe','bash.exe','make.exe') {
+            $p = (Get-Command $t -EA SilentlyContinue).Source
+            Write-Host "$t resolves to: $p"
+            if (-not $p) { Write-Host "::error::$t not found on PATH"; exit 1 }
+            if ($p -like "*\System32\*") {
+              Write-Host "::error::$t is the WSL shim at $p; libvpx/dav1d will fail"
+              exit 1
+            }
+            if ($p -notlike "*msys64*") {
+              Write-Host "::error::$t resolves to $p, not the msys64 runtime; mixing runtimes risks a cygheap mismatch"
+              exit 1
+            }
+          }
+          # Prove the shells execute, rather than merely existing.
+          foreach ($s in 'sh','bash') {
+            $probe = & $s -c 'echo shellworks'
+            if ($probe -ne 'shellworks') {
+              Write-Host "::error::$s did not execute correctly (got '$probe')"
+              exit 1
+            }
+          }
+          Write-Host "sh/bash/make all resolve to msys64 and execute"
+          # python must be the setup-python one; MSYS2's lacks pystache/six, which the
+          # SDK's wrapper generators import.
+          $pyp = (Get-Command python.exe -EA SilentlyContinue).Source
+          Write-Host "python resolves to: $pyp"
+          if ($pyp -like "*msys64*") {
+            Write-Host "::error::python resolves into msys64; pystache/six will be missing"
+            exit 1
+          }
+          python -c "import pystache, six; print('python modules OK')"
+          if ($LASTEXITCODE -ne 0) { Write-Host "::error::pystache/six missing from the active python"; exit 1 }
+          # Assembler/codec tools the SDK checks via linphone_sdk_check_is_installed().
+          # Resolved without forcing .exe: MSYS2 ships some of these (meson especially)
+          # as wrapper scripts rather than plain executables.
+          foreach ($t in 'nasm','yasm','perl','sed','meson','ninja','7z') {
+            $p = (Get-Command $t -EA SilentlyContinue | Select-Object -First 1).Source
+            if (-not $p) { Write-Host "::error::$t not found on PATH (SDK requires it)"; exit 1 }
+            Write-Host "$t resolves to: $p"
+          }
           # Probe Get-FileHash exactly as rnnoise does -- through cmake's execute_process,
           # not directly from pwsh. A direct call succeeds even when the nested one fails,
           # because the environment CMake hands to its child differs from this shell's.
