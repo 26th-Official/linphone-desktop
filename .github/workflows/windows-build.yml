@@ -5,11 +5,20 @@ name: Windows Build
 # in-flight run as soon as a newer commit lands instead of queueing them up.
 on:
   push:
+    tags:
+      - 'v*'
+    branches:
+      - '**'
   workflow_dispatch:
 
 concurrency:
   group: windows-build-${{ github.ref }}
   cancel-in-progress: true
+
+# Needed by the release job to create releases and upload assets. The default token
+# is read-only for contents; without this the upload fails with 403.
+permissions:
+  contents: write
 
 jobs:
   windows:
@@ -102,6 +111,20 @@ jobs:
 
       - name: Install Ninja
         uses: seanmiddleditch/gha-setup-ninja@v5
+
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+
+      - name: Enable sccache
+        shell: pwsh
+        run: |
+          # SCCACHE_GHA_ENABLED stores objects in the Actions cache, so hits carry across
+          # runs. This works on Windows only because CMakeLists.txt forces /Z7 embedded
+          # debug info (CMP0141): the default /Zi writes to a shared PDB, which no third
+          # party compiler cache can handle. The SDK forwards CMAKE_C_COMPILER_LAUNCHER
+          # into its ExternalProjects (cmake/ExternalDependencies.cmake:157-161,274), so
+          # aom and the autotools deps get cached too.
+          Add-Content -Path $env:GITHUB_ENV -Value "SCCACHE_GHA_ENABLED=true"
 
       - name: Install MSYS2 build tools
         shell: pwsh
@@ -318,6 +341,8 @@ jobs:
             "-DCMAKE_C_COMPILER=cl" "-DCMAKE_CXX_COMPILER=cl" "-DCMAKE_RC_COMPILER=rc" `
             "-DLINPHONESDK_VERSION=5.5.0" `
             "-DLINPHONEAPP_VERSION=6.2.0" `
+            "-DCMAKE_C_COMPILER_LAUNCHER=sccache" `
+            "-DCMAKE_CXX_COMPILER_LAUNCHER=sccache" `
             "-DENABLE_APP_PACKAGING=YES" `
             "-DENABLE_WINDOWS_TOOLS_CHECK=ON" `
             "-DENABLE_CRASH_HANDLER=OFF" `
@@ -332,10 +357,19 @@ jobs:
       - name: Build and install
         shell: pwsh
         run: |
+          sccache --zero-stats
           $start = Get-Date
           cmake --build $env:BUILD_DIR --target install --parallel 4
           # Printed so we can tune the workflow against a real number rather than a guess.
           Write-Host "Build duration: $((Get-Date) - $start)"
+
+      - name: Report sccache stats
+        if: always()
+        shell: pwsh
+        # Cache hit rate is the number to watch: a cold run is ~0%, a warm run on an
+        # unchanged SDK should be high. If it stays near zero across runs, the cache is
+        # not being reused and the compile flags likely vary between runs.
+        run: sccache --show-stats
 
       - name: Report disk space after build
         if: always()
@@ -362,3 +396,43 @@ jobs:
             ${{ env.BUILD_DIR }}/CMakeFiles/*.log
           if-no-files-found: ignore
           retention-days: 7
+
+  # Publishing is gated on tags rather than every push: a release per commit would be
+  # noise, and releases (unlike artifacts) never expire. Cut one with:
+  #   git tag v6.2.0 && git push origin v6.2.0
+  release:
+    name: Publish installer to Releases
+    needs: windows
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download installer artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: linphone-windows-installer
+          path: dist
+
+      - name: Verify the installer before publishing
+        shell: bash
+        run: |
+          set -euo pipefail
+          exe=$(find dist -name '*.exe' | head -n1)
+          [ -n "$exe" ] || { echo "::error::no .exe in the artifact"; exit 1; }
+          # A truncated or empty upload would still be a file, so check the type and a
+          # plausible size rather than mere existence.
+          file "$exe"
+          file "$exe" | grep -q 'PE32.*executable' || { echo "::error::$exe is not a Windows executable"; exit 1; }
+          bytes=$(stat -c%s "$exe")
+          echo "size: $bytes bytes"
+          [ "$bytes" -gt 50000000 ] || { echo "::error::$exe is only $bytes bytes; expected >50MB"; exit 1; }
+          sha256sum "$exe" | tee "$exe.sha256"
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.exe
+            dist/*.sha256
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+
