@@ -134,21 +134,25 @@ jobs:
           # override path (`if(NOT LINPHONESDK_VERSION)`) and skips git entirely.
           # Keep LINPHONESDK_VERSION in step with the pinned SDK commit in
           # external/linphone-sdk; both must be plain semver for bc_parse_full_version.
+          # Every -D argument is quoted: PowerShell's native-argument parser mangles
+          # unquoted dotted values, turning -DLINPHONESDK_VERSION=5.5.0 into "5" plus a
+          # stray ".5.0" path. Upstream hit the same class of bug (see the Invoke-Expression
+          # comment in .gitlab-ci-files/windows-desktop.yml).
           cmake -S . -B $env:BUILD_DIR -G Ninja `
-            -DCMAKE_BUILD_TYPE=$env:BUILD_TYPE `
-            -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DCMAKE_RC_COMPILER=rc `
-            -DLINPHONESDK_VERSION=5.5.0 `
-            -DLINPHONEAPP_VERSION=6.2.0 `
-            -DENABLE_APP_PACKAGING=YES `
-            -DENABLE_WINDOWS_TOOLS_CHECK=ON `
-            -DENABLE_CRASH_HANDLER=OFF `
-            -DENABLE_UNIT_TESTS=OFF `
-            -DENABLE_TESTS=OFF `
-            -DENABLE_TESTS_COMPONENTS=OFF `
-            -DENABLE_TOOLS=OFF `
-            -DENABLE_DOC=OFF `
-            -DENABLE_GPL_THIRD_PARTIES=OFF `
-            -DCMAKE_BUILD_PARALLEL_LEVEL=4
+            "-DCMAKE_BUILD_TYPE=$env:BUILD_TYPE" `
+            "-DCMAKE_C_COMPILER=cl" "-DCMAKE_CXX_COMPILER=cl" "-DCMAKE_RC_COMPILER=rc" `
+            "-DLINPHONESDK_VERSION=5.5.0" `
+            "-DLINPHONEAPP_VERSION=6.2.0" `
+            "-DENABLE_APP_PACKAGING=YES" `
+            "-DENABLE_WINDOWS_TOOLS_CHECK=ON" `
+            "-DENABLE_CRASH_HANDLER=OFF" `
+            "-DENABLE_UNIT_TESTS=OFF" `
+            "-DENABLE_TESTS=OFF" `
+            "-DENABLE_TESTS_COMPONENTS=OFF" `
+            "-DENABLE_TOOLS=OFF" `
+            "-DENABLE_DOC=OFF" `
+            "-DENABLE_GPL_THIRD_PARTIES=OFF" `
+            "-DCMAKE_BUILD_PARALLEL_LEVEL=4"
 
       - name: Build and install
         shell: pwsh
