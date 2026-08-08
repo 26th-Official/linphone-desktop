@@ -54,7 +54,7 @@ echo
 flattened_is_usable=0
 if [ -f "$sdk/MIRROR_SOURCE.txt" ] && [ ! -f "$sdk/.gitmodules" ]; then
   if grep -q "$sdk_sha" "$sdk/MIRROR_SOURCE.txt" 2>/dev/null &&
-     [ "$(find "$sdk/external" -type f 2>/dev/null | head -1 | wc -l)" -eq 1 ]; then
+     [ -n "$(find "$sdk/external" -type f -print -quit 2>/dev/null)" ]; then
     flattened_is_usable=1
   else
     echo "==> Discarding stale/empty flattened tree from a previous run"
@@ -107,7 +107,7 @@ else
     local p
     while IFS= read -r p; do
       [ -n "$p" ] || continue
-      if [ "$(find "$sdk/$p" -type f 2>/dev/null | head -1 | wc -l)" -eq 0 ]; then
+      if [ -z "$(find "$sdk/$p" -type f -print -quit 2>/dev/null)" ]; then
         printf '%s\n' "$p"
       fi
     done < <(expected_top_level_paths)
@@ -164,7 +164,7 @@ if [ -f "$sdk/.gitmodules" ] || [ ! -f "$sdk/MIRROR_SOURCE.txt" ]; then
   fi
   empty_before_flatten=0
   for p in "${gate_expected[@]}"; do
-    if [ "$(find "$sdk/$p" -type f 2>/dev/null | head -1 | wc -l)" -eq 0 ]; then
+    if [ -z "$(find "$sdk/$p" -type f -print -quit 2>/dev/null)" ]; then
       empty_before_flatten=$((empty_before_flatten + 1))
       echo "     empty: $p" >&2
     fi

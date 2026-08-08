@@ -50,11 +50,13 @@ jobs:
           # Fail here, not an hour into the compile. A mirror regenerated badly can look
           # complete while key dependencies are empty directories -- that exact failure
           # produced three unusable mirrors, so check for real files, not for existence.
+          # NOTE: no `| head` in these pipelines -- head closes the pipe after N lines,
+          # find gets SIGPIPE, and under pipefail the whole step dies (exit 141).
           fail=0
           for d in external/mbedtls external/srtp external/libvpx external/speex \
                    external/openldap external/xerces-c external/opus external/zlib \
                    bcg729 bcmatroska2; do
-            n=$(find "external/linphone-sdk/$d" -type f 2>/dev/null | head -50 | wc -l)
+            n=$(find "external/linphone-sdk/$d" -type f 2>/dev/null | wc -l)
             if [ "$n" -eq 0 ]; then echo "::error::SDK mirror missing content: $d"; fail=1; fi
           done
           [ "$fail" -eq 0 ] || { echo "::error::Regenerate the mirror with .github/scripts/mirror-linphone-sdk.sh"; exit 1; }
