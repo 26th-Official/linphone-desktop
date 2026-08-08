@@ -25,41 +25,40 @@ jobs:
       BUILD_DIR: build-desktop
       BUILD_TYPE: RelWithDebInfo
       QT_VERSION: 6.10.0
+      # Flattened mirror of linphone-sdk to bypass gitlab.linphone.org's connection drops.
+      SDK_MIRROR: https://github.com/26th-Official/linphone-sdk-mirror.git
+      SDK_MIRROR_REF: main
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # Submodules are fetched in the next step instead of here: they live on
-          # gitlab.linphone.org, which throttles connections and fails most clones
-          # in a burst. checkout@v4 gives up after two attempts with no backoff.
           submodules: false
           fetch-depth: 1
 
-      - name: Fetch linphone-sdk submodules
+      - name: Fetch linphone-sdk from mirror
         shell: bash
         run: |
-          set -uo pipefail
-          # Only linphone-sdk is needed. external/google/{crashpad,gn,chromium-depot-tools}
-          # are used solely by the crash handler, which this build disables, so the
-          # `if (ENABLE_CRASH_HANDLER AND WIN32)` block in external/google/CMakeLists.txt
-          # never runs and the empty directories are harmless. Skipping them removes
-          # 3 of the 4 top-level clones from an unreliable host.
-          for attempt in 1 2 3 4 5; do
-            echo "::group::Submodule fetch attempt $attempt"
-            # --jobs 1 on purpose: parallel clones are what trip the server's throttling.
-            if git submodule update --init --recursive --depth 1 --jobs 1 external/linphone-sdk; then
-              echo "::endgroup::"
-              echo "Submodules fetched on attempt $attempt"
-              exit 0
-            fi
-            echo "::endgroup::"
-            backoff=$((attempt * 30))
-            echo "Attempt $attempt failed; retrying in ${backoff}s"
-            sleep $backoff
+          set -euo pipefail
+          # The SDK and its ~31 nested submodules have been flattened into one repo
+          # hosted at SDK_MIRROR. That mirror is disposable and regenerated on demand
+          # with .github/scripts/mirror-linphone-sdk.sh whenever the pinned SDK commit
+          # in external/linphone-sdk changes.
+          git clone --depth 1 --branch "$SDK_MIRROR_REF" "$SDK_MIRROR" external/linphone-sdk
+          echo "SDK mirror cloned ($(git -C external/linphone-sdk rev-parse --short HEAD))"
+
+          # Fail here, not an hour into the compile. A mirror regenerated badly can look
+          # complete while key dependencies are empty directories -- that exact failure
+          # produced three unusable mirrors, so check for real files, not for existence.
+          fail=0
+          for d in external/mbedtls external/srtp external/libvpx external/speex \
+                   external/openldap external/xerces-c external/opus external/zlib \
+                   bcg729 bcmatroska2; do
+            n=$(find "external/linphone-sdk/$d" -type f 2>/dev/null | head -50 | wc -l)
+            if [ "$n" -eq 0 ]; then echo "::error::SDK mirror missing content: $d"; fail=1; fi
           done
-          echo "::error::Could not fetch linphone-sdk submodules from gitlab.linphone.org after 5 attempts."
-          exit 1
+          [ "$fail" -eq 0 ] || { echo "::error::Regenerate the mirror with .github/scripts/mirror-linphone-sdk.sh"; exit 1; }
+          echo "SDK mirror content verified"
 
       - name: Report disk space
         shell: pwsh
