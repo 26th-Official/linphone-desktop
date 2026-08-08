@@ -117,12 +117,42 @@ jobs:
       - name: Configure environment (Qt6_DIR and MSYS2 on PATH)
         shell: pwsh
         run: |
-          # MSYS2 is APPENDED, never prepended: it ships its own link.exe which
-          # would otherwise shadow the MSVC linker and break the build. Order
-          # within the MSYS2 entries follows the README.
-          $msys = "C:\msys64\mingw64\bin;C:\msys64;C:\msys64\usr\bin"
-          Add-Content -Path $env:GITHUB_ENV -Value "PATH=$env:PATH;$msys"
+          # MSYS2 is APPENDED, never prepended, for two reasons:
+          #   - it ships link.exe, which would shadow the MSVC linker;
+          #   - it ships a `powershell` stub, which would shadow Windows PowerShell.
+          # rnnoise/CMakeLists.txt verifies its model download with
+          # `powershell -Command "Get-FileHash ..."`. If the MSYS2 stub wins, Get-FileHash
+          # does not exist, the computed hash is empty, and the checksum check aborts
+          # configure with a blank "computed:" value.
+          # System32 is placed first explicitly so the real powershell.exe always wins,
+          # regardless of how the runner image happens to order PATH.
+          $sys32 = "$env:SystemRoot\system32;$env:SystemRoot;$env:SystemRoot\System32\WindowsPowerShell\v1.0"
+          $msys  = "C:\msys64\mingw64\bin;C:\msys64;C:\msys64\usr\bin"
+          Add-Content -Path $env:GITHUB_ENV -Value "PATH=$sys32;$env:PATH;$msys"
           Add-Content -Path $env:GITHUB_ENV -Value "Qt6_DIR=$env:QT_ROOT_DIR\lib\cmake\Qt6"
+
+      - name: Verify toolchain resolution
+        shell: pwsh
+        run: |
+          # Fail in seconds if PATH ordering is wrong, rather than mid-configure.
+          $ps = (Get-Command powershell.exe).Source
+          Write-Host "powershell resolves to: $ps"
+          if ($ps -like "*msys64*") {
+            Write-Host "::error::MSYS2 powershell shadows Windows PowerShell; Get-FileHash would fail"
+            exit 1
+          }
+          # Confirm the cmdlet the rnnoise checksum depends on actually runs.
+          $probe = powershell -Command "Get-FileHash -Algorithm SHA256 '$env:SystemRoot\notepad.exe' | Select-Object -ExpandProperty Hash"
+          if (-not $probe) {
+            Write-Host "::error::Get-FileHash returned nothing; rnnoise checksum verification will fail"
+            exit 1
+          }
+          Write-Host "Get-FileHash works (sample: $probe)"
+          foreach ($t in 'link.exe','cl.exe') {
+            $p = (Get-Command $t -EA SilentlyContinue).Source
+            Write-Host "$t resolves to: $p"
+            if ($p -like "*msys64*") { Write-Host "::error::MSYS2 $t shadows the MSVC toolchain"; exit 1 }
+          }
 
       - name: Configure
         shell: pwsh
