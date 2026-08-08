@@ -148,12 +148,12 @@ jobs:
           Add-Content -Path $env:GITHUB_ENV -Value "PATH=$py;$msysu;$sys32;$env:PATH;$msysm"
           Add-Content -Path $env:GITHUB_ENV -Value "Qt6_DIR=$env:QT_ROOT_DIR\lib\cmake\Qt6"
 
-          # ExternalProjects run their own nested CMake and do not inherit our
-          # -DCMAKE_C_COMPILER flags. CC/CXX are honoured by CMake's compiler probe, so
-          # setting them here pins MSVC for every nested configure even if some future
-          # PATH change puts a gcc back in front.
-          Add-Content -Path $env:GITHUB_ENV -Value "CC=cl"
-          Add-Content -Path $env:GITHUB_ENV -Value "CXX=cl"
+          # Deliberately NOT setting CC/CXX. It looks like a safe way to pin MSVC for
+          # nested ExternalProject CMake builds, but libvpx's configure is an autotools
+          # style shell script that honours CC and drives MSVC itself via
+          # --target=x86_64-win64-vs17; forcing CC=cl makes its link probe fail with
+          # "Toolchain is unable to link executables". PATH ordering above is sufficient:
+          # with mingw64\bin after MSVC, aom's nested probe finds cl.exe on its own.
 
           # These steps run under pwsh (PowerShell 7), which sets PSModulePath to PS7's
           # module directories. CMake inherits that, then rnnoise invokes Windows
