@@ -131,6 +131,19 @@ jobs:
           Add-Content -Path $env:GITHUB_ENV -Value "PATH=$sys32;$env:PATH;$msys"
           Add-Content -Path $env:GITHUB_ENV -Value "Qt6_DIR=$env:QT_ROOT_DIR\lib\cmake\Qt6"
 
+          # These steps run under pwsh (PowerShell 7), which sets PSModulePath to PS7's
+          # module directories. CMake inherits that, then rnnoise invokes Windows
+          # PowerShell 5.1 (`powershell -Command "Get-FileHash ..."`), which cannot find
+          # its own Microsoft.PowerShell.Utility module under PS7 paths -- so Get-FileHash
+          # resolves to nothing, the computed hash is empty, and the checksum check aborts.
+          # Listing the 5.1 module paths first makes autoloading work for both hosts.
+          $psmod = @(
+            "$env:SystemRoot\system32\WindowsPowerShell\v1.0\Modules",
+            "$env:ProgramFiles\WindowsPowerShell\Modules",
+            "$env:ProgramFiles\PowerShell\7\Modules"
+          ) -join ';'
+          Add-Content -Path $env:GITHUB_ENV -Value "PSModulePath=$psmod"
+
       - name: Verify toolchain resolution
         shell: pwsh
         run: |
@@ -141,18 +154,26 @@ jobs:
             Write-Host "::error::MSYS2 powershell shadows Windows PowerShell; Get-FileHash would fail"
             exit 1
           }
-          # Confirm the cmdlet the rnnoise checksum depends on actually runs.
-          $probe = powershell -Command "Get-FileHash -Algorithm SHA256 '$env:SystemRoot\notepad.exe' | Select-Object -ExpandProperty Hash"
-          if (-not $probe) {
-            Write-Host "::error::Get-FileHash returned nothing; rnnoise checksum verification will fail"
-            exit 1
-          }
-          Write-Host "Get-FileHash works (sample: $probe)"
           foreach ($t in 'link.exe','cl.exe') {
             $p = (Get-Command $t -EA SilentlyContinue).Source
             Write-Host "$t resolves to: $p"
             if ($p -like "*msys64*") { Write-Host "::error::MSYS2 $t shadows the MSVC toolchain"; exit 1 }
           }
+          # Probe Get-FileHash exactly as rnnoise does -- through cmake's execute_process,
+          # not directly from pwsh. A direct call succeeds even when the nested one fails,
+          # because the environment CMake hands to its child differs from this shell's.
+          @'
+          execute_process(
+            COMMAND powershell -Command "Get-FileHash -Algorithm SHA256 '$ENV{SystemRoot}/notepad.exe' | Select-Object -ExpandProperty Hash"
+            OUTPUT_VARIABLE H OUTPUT_STRIP_TRAILING_WHITESPACE)
+          if(H STREQUAL "")
+            message(FATAL_ERROR "Get-FileHash returned nothing via execute_process; rnnoise checksum would fail")
+          endif()
+          message(STATUS "Get-FileHash via cmake works: ${H}")
+          '@ | Set-Content -Path probe.cmake -Encoding utf8
+          cmake -P probe.cmake
+          if ($LASTEXITCODE -ne 0) { Write-Host "::error::rnnoise checksum verification will fail"; exit 1 }
+          Remove-Item probe.cmake
 
       - name: Configure
         shell: pwsh
