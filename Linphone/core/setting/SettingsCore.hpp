@@ -319,6 +319,24 @@ public:
 	DECLARE_CORE_MEMBER(QVariantList, shortcuts, Shortcuts)
 	DECLARE_CORE_GETSET_MEMBER(bool, disableCommandLine, DisableCommandLine)
 	DECLARE_CORE_GETSET_MEMBER(QString, commandLine, CommandLine)
+	// Recording upload (linphone-helper). The token is a revocable bearer token for that
+	// service, not an AWS key -- the S3 credentials stay server-side, which is why the
+	// upload goes through the helper at all.
+	DECLARE_CORE_GETSET_MEMBER(bool, recordingUploadEnabled, RecordingUploadEnabled)
+	DECLARE_CORE_GETSET_MEMBER(QString, recordingUploadUrl, RecordingUploadUrl)
+	DECLARE_CORE_GETSET_MEMBER(QString, recordingUploadToken, RecordingUploadToken)
+
+	// Plain accessors for RecordingUploader, which runs outside QML and so cannot go
+	// through the Q_PROPERTY the macro declares.
+	bool getRecordingUploadEnabled() const {
+		return mRecordingUploadEnabled;
+	}
+	QString getRecordingUploadUrl() const {
+		return mRecordingUploadUrl;
+	}
+	QString getRecordingUploadToken() const {
+		return mRecordingUploadToken;
+	}
 	DECLARE_CORE_GET_CONSTANT(QFont, emojiFont, EmojiFont)
 	DECLARE_CORE_GET_CONSTANT(QFont, textMessageFont, TextMessageFont)
 	// Theme

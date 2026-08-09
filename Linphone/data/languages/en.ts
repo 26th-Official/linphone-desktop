@@ -1479,6 +1479,31 @@
         <translation>Enable automatic call recording</translation>
     </message>
     <message>
+        <source>settings_calls_upload_recordings_title</source>
+        <extracomment>&quot;Envoyer les enregistrements au serveur&quot;</extracomment>
+        <translation>Upload recordings to server</translation>
+    </message>
+    <message>
+        <source>settings_calls_upload_recordings_subtitle</source>
+        <extracomment>&quot;Les enregistrements sont également conservés localement&quot;</extracomment>
+        <translation>Recordings are also kept on this computer</translation>
+    </message>
+    <message>
+        <source>settings_calls_upload_url_title</source>
+        <extracomment>&quot;Adresse du serveur&quot;</extracomment>
+        <translation>Server address</translation>
+    </message>
+    <message>
+        <source>settings_calls_upload_token_title</source>
+        <extracomment>&quot;Jeton d&apos;authentification&quot;</extracomment>
+        <translation>Authentication token</translation>
+    </message>
+    <message>
+        <source>settings_calls_upload_token_place_holder</source>
+        <extracomment>&quot;Jeton fourni par le serveur&quot;</extracomment>
+        <translation>Token from the server</translation>
+    </message>
+    <message>
         <location filename="../../view/Page/Layout/Settings/CallSettingsLayout.qml" line="70"/>
         <source>settings_call_enable_tones_title</source>
         <extracomment>Tonalités</extracomment>

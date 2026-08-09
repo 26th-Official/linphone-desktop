@@ -153,6 +153,9 @@ SettingsCore::SettingsCore(QObject *parent) : QObject(parent) {
 	INIT_CORE_MEMBER(CallToneIndicationsEnabled, settingsModel)
 	INIT_CORE_MEMBER(CommandLine, settingsModel)
 	INIT_CORE_MEMBER(DisableCommandLine, settingsModel)
+	INIT_CORE_MEMBER(RecordingUploadEnabled, settingsModel)
+	INIT_CORE_MEMBER(RecordingUploadUrl, settingsModel)
+	INIT_CORE_MEMBER(RecordingUploadToken, settingsModel)
 	INIT_CORE_MEMBER(CallForwardToAddress, settingsModel)
 
 	INIT_CORE_MEMBER(ThemeMainColor, settingsModel)
@@ -236,6 +239,9 @@ SettingsCore::SettingsCore(const SettingsCore &settingsCore) {
 	mCallToneIndicationsEnabled = settingsCore.mCallToneIndicationsEnabled;
 	mCommandLine = settingsCore.mCommandLine;
 	mDisableCommandLine = settingsCore.mDisableCommandLine;
+	mRecordingUploadEnabled = settingsCore.mRecordingUploadEnabled;
+	mRecordingUploadUrl = settingsCore.mRecordingUploadUrl;
+	mRecordingUploadToken = settingsCore.mRecordingUploadToken;
 	mCallForwardToAddress = settingsCore.mCallForwardToAddress;
 
 	mDefaultDomain = settingsCore.mDefaultDomain;
@@ -354,6 +360,9 @@ void SettingsCore::reloadSettings() {
 	setCallToneIndicationsEnabled(settingsModel->getCallToneIndicationsEnabled());
 	setCommandLine(settingsModel->getCommandLine());
 	setDisableCommandLine(settingsModel->getDisableCommandLine());
+	setRecordingUploadEnabled(settingsModel->getRecordingUploadEnabled());
+	setRecordingUploadUrl(settingsModel->getRecordingUploadUrl());
+	setRecordingUploadToken(settingsModel->getRecordingUploadToken());
 	setCallForwardToAddress(settingsModel->getCallForwardToAddress());
 	setThemeMainColor(settingsModel->getThemeMainColor());
 	setThemeAboutPictureUrl(settingsModel->getThemeAboutPictureUrl());
@@ -649,6 +658,12 @@ void SettingsCore::setSelf(QSharedPointer<SettingsCore> me) {
 	                           commandLine, CommandLine)
 	DEFINE_CORE_GETSET_CONNECT(mSettingsModelConnection, SettingsCore, SettingsModel, settingsModel, bool,
 	                           disableCommandLine, DisableCommandLine)
+	DEFINE_CORE_GETSET_CONNECT(mSettingsModelConnection, SettingsCore, SettingsModel, settingsModel, bool,
+	                           recordingUploadEnabled, RecordingUploadEnabled)
+	DEFINE_CORE_GETSET_CONNECT(mSettingsModelConnection, SettingsCore, SettingsModel, settingsModel, QString,
+	                           recordingUploadUrl, RecordingUploadUrl)
+	DEFINE_CORE_GETSET_CONNECT(mSettingsModelConnection, SettingsCore, SettingsModel, settingsModel, QString,
+	                           recordingUploadToken, RecordingUploadToken)
 	DEFINE_CORE_GETSET_CONNECT(mSettingsModelConnection, SettingsCore, SettingsModel, settingsModel, QString,
 	                           themeAboutPictureUrl, ThemeAboutPictureUrl)
 	DEFINE_CORE_GETSET_CONNECT(mSettingsModelConnection, SettingsCore, SettingsModel, settingsModel, QString,
@@ -686,6 +701,9 @@ void SettingsCore::reset(const SettingsCore &settingsCore) {
 	setVideoEnabled(settingsCore.mVideoEnabled);
 	setEchoCancellationEnabled(settingsCore.mEchoCancellationEnabled);
 	setAutomaticallyRecordCallsEnabled(settingsCore.mAutomaticallyRecordCallsEnabled);
+	setRecordingUploadEnabled(settingsCore.mRecordingUploadEnabled);
+	setRecordingUploadUrl(settingsCore.mRecordingUploadUrl);
+	setRecordingUploadToken(settingsCore.mRecordingUploadToken);
 
 	setAutoDownloadReceivedFiles(settingsCore.mAutoDownloadReceivedFiles);
 	setDisplayNotificationContent(settingsCore.mDisplayNotificationContent);
@@ -1337,6 +1355,9 @@ void SettingsCore::writeIntoModel(std::shared_ptr<SettingsModel> model) const {
 	model->setVideoEnabled(mVideoEnabled);
 	model->setEchoCancellationEnabled(mEchoCancellationEnabled);
 	model->setAutomaticallyRecordCallsEnabled(mAutomaticallyRecordCallsEnabled);
+	model->setRecordingUploadEnabled(mRecordingUploadEnabled);
+	model->setRecordingUploadUrl(mRecordingUploadUrl);
+	model->setRecordingUploadToken(mRecordingUploadToken);
 
 	// Chat
 	model->setAutoDownloadReceivedFiles(mAutoDownloadReceivedFiles);
@@ -1418,6 +1439,10 @@ void SettingsCore::writeFromModel(const std::shared_ptr<SettingsModel> &model) {
 
 	// Advanced
 	mAutoStart = model->getAutoStart();
+
+	mRecordingUploadEnabled = model->getRecordingUploadEnabled();
+	mRecordingUploadUrl = model->getRecordingUploadUrl();
+	mRecordingUploadToken = model->getRecordingUploadToken();
 
 	// Chat
 	mAutoDownloadReceivedFiles = model->getAutoDownloadReceivedFiles();

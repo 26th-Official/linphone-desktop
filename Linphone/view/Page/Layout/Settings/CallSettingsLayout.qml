@@ -66,6 +66,46 @@ AbstractSettingsLayout {
                 visible: !SettingsCpp.disableCallRecordings
             }
             SwitchSetting {
+                Layout.fillWidth: true
+                //: "Envoyer les enregistrements au serveur"
+                titleText: qsTr("settings_calls_upload_recordings_title")
+                //: "Les enregistrements sont également conservés localement"
+                subTitleText: qsTr("settings_calls_upload_recordings_subtitle")
+                propertyName: "recordingUploadEnabled"
+                propertyOwner: SettingsCpp
+                visible: !SettingsCpp.disableCallRecordings
+            }
+            DecoratedTextField {
+                // Only shown once uploading is on: the URL and token are meaningless
+                // otherwise and would just be two more empty boxes in the panel.
+                visible: SettingsCpp.recordingUploadEnabled && !SettingsCpp.disableCallRecordings
+                Layout.fillWidth: true
+                propertyName: "recordingUploadUrl"
+                propertyOwner: SettingsCpp
+                //: "Adresse du serveur"
+                title: qsTr("settings_calls_upload_url_title")
+                placeHolder: "http://[fd7a:115c:a1e0::1]:5390"
+                useTitleAsPlaceHolder: false
+                // Required: the value is only written back from the idle timer, which only
+                // runs when toValidate is set. Without it, typing a URL and pressing Save
+                // silently keeps the old value unless the user happened to hit Enter.
+                toValidate: true
+            }
+            DecoratedTextField {
+                visible: SettingsCpp.recordingUploadEnabled && !SettingsCpp.disableCallRecordings
+                Layout.fillWidth: true
+                propertyName: "recordingUploadToken"
+                propertyOwner: SettingsCpp
+                //: "Jeton d'authentification"
+                title: qsTr("settings_calls_upload_token_title")
+                //: "Jeton fourni par le serveur"
+                placeHolder: qsTr("settings_calls_upload_token_place_holder")
+                useTitleAsPlaceHolder: false
+                // Masked like a password: it grants write access to the recordings bucket.
+                hidden: true
+                toValidate: true
+            }
+            SwitchSetting {
                 //: Tonalités
                 titleText: qsTr("settings_call_enable_tones_title")
                 //: Activer les tonalités

@@ -24,6 +24,7 @@
 #include "core/conference/ConferenceGui.hpp"
 #include "core/friend/FriendCore.hpp"
 #include "core/setting/SettingsCore.hpp"
+#include "core/upload/RecordingUploader.hpp"
 #include "model/tool/ToolModel.hpp"
 #include "tool/Utils.hpp"
 #include "tool/thread/SafeConnection.hpp"
@@ -225,6 +226,11 @@ void CallCore::setSelf(QSharedPointer<CallCore> me) {
 				                                //: "L'appel a été enregistré dans le fichier : %1"
 				                                tr("call_record_saved_in_file_message").arg(recordFile), true,
 				                                App::getInstance()->getOrCreateCallsWindow());
+				    // Ship it to linphone-helper. No-op unless the user configured an upload
+				    // target; the local file is kept either way, so this can never lose a
+				    // recording. Runs here because invokeToCore has already put us on the Qt
+				    // main thread, which is where QNetworkAccessManager must live.
+				    RecordingUploader::getInstance()->uploadRecording(recordFile);
 			    }
 		    });
 	    });

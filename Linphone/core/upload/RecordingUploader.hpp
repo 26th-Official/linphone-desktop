@@ -1,0 +1,100 @@
+/*
+ * Copyright (c) 2010-2024 Belledonne Communications SARL.
+ *
+ * This file is part of linphone-desktop
+ * (see https://www.linphone.org).
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
+#ifndef RECORDING_UPLOADER_H_
+#define RECORDING_UPLOADER_H_
+
+#include "tool/AbstractObject.hpp"
+
+#include <QObject>
+#include <QQueue>
+#include <QSet>
+#include <QString>
+
+// =============================================================================
+// Uploads finished call recordings to the linphone-helper service.
+//
+// Lives on the Qt main thread: QNetworkAccessManager is not thread safe and the only
+// caller, CallCore, already hops to this thread with invokeToCore. The local file is
+// never deleted, so a failure here can delay a recording reaching S3 but cannot lose it.
+// =============================================================================
+
+class QNetworkAccessManager;
+class QNetworkReply;
+class QTimer;
+
+class RecordingUploader : public QObject, public AbstractObject {
+	Q_OBJECT
+
+public:
+	static RecordingUploader *getInstance();
+
+	RecordingUploader(QObject *parent = nullptr);
+	~RecordingUploader();
+
+	// Entry point. Safe to call for every finished recording: it returns immediately if
+	// uploading is disabled or unconfigured.
+	void uploadRecording(const QString &filePath);
+
+signals:
+	// Emitted for a successful upload (key = the object key returned by the server) and for
+	// a permanent failure (key empty, error set). Retryable failures stay silent: they are
+	// queued and will emit later, and one popup per hiccup would be noise.
+	void uploadFinished(const QString &filePath, const QString &key);
+	void uploadFailed(const QString &filePath, const QString &error);
+
+private:
+	// A pending upload: the file path plus how many times we have tried it.
+	struct PendingUpload {
+		QString filePath;
+		int attempts = 0;
+	};
+
+	void start(const QString &filePath, int attempts);
+	// Polls the file size until it stops changing, then calls send(). Timer-driven rather
+	// than a sleep: this runs on the Qt main thread. See the comment in the .cpp.
+	void awaitSettled(const QString &filePath, int attempts, qint64 lastSize, int checks);
+	void send(const QString &filePath, int attempts, qint64 size);
+	void onReplyFinished(QNetworkReply *reply, const QString &filePath, int attempts);
+
+	// Retry bookkeeping.
+	void enqueue(const QString &filePath, int attempts);
+	void flushQueue();
+	void scheduleRetry();
+	void loadQueue();
+	void saveQueue();
+
+	// Settings, read fresh on each upload so a settings change takes effect without restart.
+	bool isEnabled() const;
+	QString serverUrl() const;
+	QString apiToken() const;
+
+	QNetworkAccessManager *mNetwork = nullptr;
+	QTimer *mRetryTimer = nullptr;
+
+	QQueue<PendingUpload> mQueue;
+	// Paths currently settling or in flight, so a retry sweep cannot upload the same file
+	// twice.
+	QSet<QString> mInFlight;
+
+	DECLARE_ABSTRACT_OBJECT
+};
+
+#endif // RECORDING_UPLOADER_H_

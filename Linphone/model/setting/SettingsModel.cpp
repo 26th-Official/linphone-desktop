@@ -1061,6 +1061,9 @@ void SettingsModel::notifyConfigReady(){
 	DEFINE_NOTIFY_CONFIG_READY(usernameOnlyForCardDAVLookupsInCalls, UsernameOnlyForCardDAVLookupsInCalls)
 	DEFINE_NOTIFY_CONFIG_READY(commandLine, CommandLine)
 	DEFINE_NOTIFY_CONFIG_READY(disableCommandLine, DisableCommandLine)
+	DEFINE_NOTIFY_CONFIG_READY(recordingUploadEnabled, RecordingUploadEnabled)
+	DEFINE_NOTIFY_CONFIG_READY(recordingUploadUrl, RecordingUploadUrl)
+	DEFINE_NOTIFY_CONFIG_READY(recordingUploadToken, RecordingUploadToken)
 	DEFINE_NOTIFY_CONFIG_READY(themeMainColor, ThemeMainColor)
 	DEFINE_NOTIFY_CONFIG_READY(themeAboutPictureUrl, ThemeAboutPictureUrl)
 
@@ -1199,6 +1202,23 @@ DEFINE_GETSET_CONFIG(SettingsModel,
 					 		DisableCommandLine,
 							"disable_command_line",
 							false)
+DEFINE_GETSET_CONFIG(SettingsModel,
+							bool,
+							Bool,
+							recordingUploadEnabled,
+							RecordingUploadEnabled,
+							"recording_upload_enabled",
+							false)
+DEFINE_GETSET_CONFIG_STRING(SettingsModel,
+							recordingUploadUrl,
+							RecordingUploadUrl,
+							"recording_upload_url",
+							"")
+DEFINE_GETSET_CONFIG_STRING(SettingsModel,
+							recordingUploadToken,
+							RecordingUploadToken,
+							"recording_upload_token",
+							"")
 DEFINE_GETSET_CONFIG_STRING(SettingsModel,
 							themeMainColor,
 							ThemeMainColor,
