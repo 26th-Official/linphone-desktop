@@ -22,6 +22,7 @@
 
 #include <QDebug>
 
+#include "model/address-books/leads/LeadsDirectoryModel.hpp"
 #include "model/core/CoreModel.hpp"
 #include "model/friend/FriendsManager.hpp"
 #include "model/setting/SettingsModel.hpp"
@@ -34,6 +35,18 @@ DEFINE_ABSTRACT_OBJECT(MagicSearchModel)
 MagicSearchModel::MagicSearchModel(const std::shared_ptr<linphone::MagicSearch> &data, QObject *parent)
     : ::Listener<linphone::MagicSearch, linphone::MagicSearchListener>(data, parent) {
 	mustBeInLinphoneThread(getClassName());
+
+	// Leads arrive after the SDK query has already returned, because the directory is
+	// remote. Re-run the query once they are in the friend list so they appear alongside
+	// local contacts. Both objects live on the linphone thread, so this is a direct call.
+	if (auto leads = LeadsDirectoryModel::getInstance()) {
+		connect(leads.get(), &LeadsDirectoryModel::searchFinished, this, [this](const QString &filter) {
+			// The user has typed further since this request went out; its results are for
+			// a filter that is no longer on screen.
+			if (filter != mLastSearch) return;
+			researchLocally();
+		});
+	}
 }
 
 MagicSearchModel::~MagicSearchModel() {
@@ -46,6 +59,8 @@ void MagicSearchModel::search(QString filter,
                               int maxResults) {
 	filter = filter.toLower();
 	mLastSearch = filter;
+	mLastSourceFlags = sourceFlags;
+	mLastAggregation = aggregation;
 	setMaxResults(maxResults);
 	if (filter == "" || filter == "*") {
 		if (((sourceFlags & (int)LinphoneEnums::MagicSearchSource::LdapServers) > 0) &&
@@ -65,8 +80,23 @@ void MagicSearchModel::search(QString filter,
 		sourceFlags &= ~(int)LinphoneEnums::MagicSearchSource::RemoteCardDAV;
 	}
 	lInfo() << log().arg("Searching ") << filter << " from " << sourceFlags << " with limit " << maxResults;
+
+	// Fired before the SDK query rather than after, so the two run concurrently: local
+	// results appear immediately and leads fill in when the server answers. The SDK has no
+	// extensible source list, so the reply is injected as friends and picked up by
+	// researchLocally() -- see LeadsDirectoryModel for why.
+	if (auto leads = LeadsDirectoryModel::getInstance()) leads->search(filter);
+
 	mMonitor->getContactsListAsync(filter != "*" ? Utils::appStringToCoreString(filter) : "", "", sourceFlags,
 	                               LinphoneEnums::toLinphone(aggregation));
+}
+
+void MagicSearchModel::researchLocally() {
+	mustBeInLinphoneThread(log().arg(Q_FUNC_INFO));
+	if (mLastSearch.isEmpty()) return;
+	lInfo() << log().arg("Re-running search '%1' to include leads").arg(mLastSearch);
+	mMonitor->getContactsListAsync(mLastSearch != "*" ? Utils::appStringToCoreString(mLastSearch) : "", "",
+	                               mLastSourceFlags, LinphoneEnums::toLinphone(mLastAggregation));
 }
 
 int MagicSearchModel::getMaxResults() const {

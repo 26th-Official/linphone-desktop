@@ -49,6 +49,16 @@ signals:
 private:
 	DECLARE_ABSTRACT_OBJECT
 
+	// Re-issues the last SDK query without re-querying the leads directory. Called once
+	// leads have been materialised into their friend list, so the SDK's Friends source
+	// picks them up on this second pass. Kept separate from search() precisely so it
+	// cannot trigger another remote lookup and loop.
+	void researchLocally();
+
+	// Retained so researchLocally() can repeat the query the user actually asked for.
+	int mLastSourceFlags = 0;
+	LinphoneEnums::MagicSearchAggregation mLastAggregation = LinphoneEnums::MagicSearchAggregation::None;
+
 	//--------------------------------------------------------------------------------
 	// LINPHONE
 	//--------------------------------------------------------------------------------
