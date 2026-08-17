@@ -230,7 +230,37 @@ void CallCore::setSelf(QSharedPointer<CallCore> me) {
 				    // target; the local file is kept either way, so this can never lose a
 				    // recording. Runs here because invokeToCore has already put us on the Qt
 				    // main thread, which is where QNetworkAccessManager must live.
-				    RecordingUploader::getInstance()->uploadRecording(recordFile);
+				    //
+				    // Every field below is a plain member already cached on this thread, so
+				    // nothing here touches a linphone object or hops threads. Direction is
+				    // spelled out rather than using LinphoneEnums::toString(CallDir), which
+				    // returns a *translated* string and would change with the UI language --
+				    // useless as a machine-readable field on the server.
+				    RecordingUploader::CallMetadata metadata;
+				    metadata.callId = getCallId();
+				    metadata.remoteAddress = getRemoteAddress();
+				    metadata.remoteName = mRemoteName;
+				    metadata.localAddress = getLocalAddress();
+				    metadata.direction = getDir() == LinphoneEnums::CallDir::Incoming
+				                             ? QStringLiteral("incoming")
+				                             : QStringLiteral("outgoing");
+				    metadata.status = LinphoneEnums::toString(getStatus());
+				    metadata.durationSeconds = getDuration();
+				    switch (getEncryption()) {
+					    case LinphoneEnums::MediaEncryption::Srtp:
+						    metadata.encryption = QStringLiteral("srtp");
+						    break;
+					    case LinphoneEnums::MediaEncryption::Zrtp:
+						    metadata.encryption = QStringLiteral("zrtp");
+						    break;
+					    case LinphoneEnums::MediaEncryption::Dtls:
+						    metadata.encryption = QStringLiteral("dtls");
+						    break;
+					    default:
+						    metadata.encryption = QStringLiteral("none");
+						    break;
+				    }
+				    RecordingUploader::getInstance()->uploadRecording(recordFile, metadata);
 			    }
 		    });
 	    });

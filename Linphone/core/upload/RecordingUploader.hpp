@@ -49,9 +49,28 @@ public:
 	RecordingUploader(QObject *parent = nullptr);
 	~RecordingUploader();
 
+	// Call facts sent alongside the recording, so the server can match an object back to a
+	// call without parsing the filename. Everything here is a plain value copied on the Qt
+	// main thread; nothing holds a linphone object, so the struct is safe to keep in the
+	// retry queue and to persist across a restart.
+	struct CallMetadata {
+		QString callId;        // SIP Call-ID -- the join key for a provider-side webhook
+		QString remoteAddress; // sip:+31...@domain
+		QString remoteName;    // resolved display name, may be empty
+		QString localAddress;  // which local account took the call
+		QString direction;     // "incoming" | "outgoing"
+		QString status;        // "Success" | "Missed" | "Declined" | ...
+		int durationSeconds = -1;
+		QString encryption;    // media encryption, may be empty
+
+		bool isEmpty() const {
+			return callId.isEmpty() && remoteAddress.isEmpty();
+		}
+	};
+
 	// Entry point. Safe to call for every finished recording: it returns immediately if
 	// uploading is disabled or unconfigured.
-	void uploadRecording(const QString &filePath);
+	void uploadRecording(const QString &filePath, const CallMetadata &metadata = {});
 
 signals:
 	// Emitted for a successful upload (key = the object key returned by the server) and for
@@ -61,21 +80,25 @@ signals:
 	void uploadFailed(const QString &filePath, const QString &error);
 
 private:
-	// A pending upload: the file path plus how many times we have tried it.
+	// A pending upload: the file path, how many times we have tried it, and the call facts
+	// captured when the recording finished. The metadata is carried through the queue
+	// because the call object is long gone by the time a retry fires.
 	struct PendingUpload {
 		QString filePath;
 		int attempts = 0;
+		CallMetadata metadata;
 	};
 
-	void start(const QString &filePath, int attempts);
+	void start(const QString &filePath, const CallMetadata &metadata, int attempts);
 	// Polls the file size until it stops changing, then calls send(). Timer-driven rather
 	// than a sleep: this runs on the Qt main thread. See the comment in the .cpp.
-	void awaitSettled(const QString &filePath, int attempts, qint64 lastSize, int checks);
-	void send(const QString &filePath, int attempts, qint64 size);
-	void onReplyFinished(QNetworkReply *reply, const QString &filePath, int attempts);
+	void awaitSettled(const QString &filePath, const CallMetadata &metadata, int attempts, qint64 lastSize,
+	                  int checks);
+	void send(const QString &filePath, const CallMetadata &metadata, int attempts, qint64 size);
+	void onReplyFinished(QNetworkReply *reply, const QString &filePath, const CallMetadata &metadata, int attempts);
 
 	// Retry bookkeeping.
-	void enqueue(const QString &filePath, int attempts);
+	void enqueue(const QString &filePath, const CallMetadata &metadata, int attempts);
 	void flushQueue();
 	void scheduleRetry();
 	void loadQueue();

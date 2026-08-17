@@ -114,18 +114,18 @@ QString RecordingUploader::apiToken() const {
 // Upload
 // -----------------------------------------------------------------------------
 
-void RecordingUploader::uploadRecording(const QString &filePath) {
+void RecordingUploader::uploadRecording(const QString &filePath, const CallMetadata &metadata) {
 	if (filePath.isEmpty()) return;
 	if (!isEnabled()) return;
-	start(filePath, 0);
+	start(filePath, metadata, 0);
 }
 
-void RecordingUploader::start(const QString &filePath, int attempts) {
+void RecordingUploader::start(const QString &filePath, const CallMetadata &metadata, int attempts) {
 	// Reserve the path up front: a retry sweep firing while this upload is still settling
 	// would otherwise start a second copy of the same file.
 	if (mInFlight.contains(filePath)) return;
 	mInFlight.insert(filePath);
-	awaitSettled(filePath, attempts, -1, 0);
+	awaitSettled(filePath, metadata, attempts, -1, 0);
 }
 
 // The SDK finalises the .mkv when recording stops, but recordingChanged(false) is emitted
@@ -136,7 +136,8 @@ void RecordingUploader::start(const QString &filePath, int attempts) {
 //
 // Polled with a timer rather than a sleep: this runs on the Qt main thread, so blocking
 // even briefly would freeze the UI at the exact moment the call ends.
-void RecordingUploader::awaitSettled(const QString &filePath, int attempts, qint64 lastSize, int checks) {
+void RecordingUploader::awaitSettled(const QString &filePath, const CallMetadata &metadata, int attempts,
+                                     qint64 lastSize, int checks) {
 	QFileInfo info(filePath);
 	if (!info.exists() || !info.isFile()) {
 		// Nothing to upload. Not an error worth surfacing: the local file is the
@@ -148,7 +149,7 @@ void RecordingUploader::awaitSettled(const QString &filePath, int attempts, qint
 
 	const qint64 size = info.size();
 	if (size > 0 && size == lastSize) {
-		send(filePath, attempts, size);
+		send(filePath, metadata, attempts, size);
 		return;
 	}
 
@@ -157,16 +158,16 @@ void RecordingUploader::awaitSettled(const QString &filePath, int attempts, qint
 		// than sending a file that is still being written.
 		lWarning() << log().arg("Recording still being written, deferring upload:") << filePath;
 		mInFlight.remove(filePath);
-		enqueue(filePath, attempts);
+		enqueue(filePath, metadata, attempts);
 		return;
 	}
 
-	QTimer::singleShot(SettleIntervalMs, this, [this, filePath, attempts, size, checks]() {
-		awaitSettled(filePath, attempts, size, checks + 1);
+	QTimer::singleShot(SettleIntervalMs, this, [this, filePath, metadata, attempts, size, checks]() {
+		awaitSettled(filePath, metadata, attempts, size, checks + 1);
 	});
 }
 
-void RecordingUploader::send(const QString &filePath, int attempts, qint64 size) {
+void RecordingUploader::send(const QString &filePath, const CallMetadata &metadata, int attempts, qint64 size) {
 	const QUrl url(serverUrl() + QStringLiteral("/recordings"));
 	if (!url.isValid() || url.scheme().isEmpty()) {
 		lWarning() << log().arg("Invalid upload URL:") << serverUrl();
@@ -188,6 +189,28 @@ void RecordingUploader::send(const QString &filePath, int attempts, qint64 size)
 	// memory, which matters for a long call. It takes ownership of the device, so the file
 	// is closed and deleted with the multipart.
 	auto *multiPart = new QHttpMultiPart(QHttpMultiPart::FormDataType);
+
+	// Call metadata as ordinary form fields, so the server can match the object back to a
+	// call without parsing the filename. Empty values are omitted rather than sent as ""
+	// -- an absent field is unambiguous, an empty string looks like a real value.
+	auto addField = [multiPart](const QString &name, const QString &value) {
+		if (value.isEmpty()) return;
+		QHttpPart part;
+		part.setHeader(QNetworkRequest::ContentDispositionHeader,
+		               QVariant(QStringLiteral("form-data; name=\"%1\"").arg(name)));
+		part.setBody(value.toUtf8());
+		multiPart->append(part);
+	};
+	addField(QStringLiteral("call_id"), metadata.callId);
+	addField(QStringLiteral("remote_address"), metadata.remoteAddress);
+	addField(QStringLiteral("remote_name"), metadata.remoteName);
+	addField(QStringLiteral("local_address"), metadata.localAddress);
+	addField(QStringLiteral("direction"), metadata.direction);
+	addField(QStringLiteral("status"), metadata.status);
+	addField(QStringLiteral("encryption"), metadata.encryption);
+	if (metadata.durationSeconds >= 0)
+		addField(QStringLiteral("duration_seconds"), QString::number(metadata.durationSeconds));
+
 	QHttpPart filePart;
 	const QString fileName = QFileInfo(filePath).fileName();
 	filePart.setHeader(QNetworkRequest::ContentDispositionHeader,
@@ -200,15 +223,17 @@ void RecordingUploader::send(const QString &filePath, int attempts, qint64 size)
 	QNetworkRequest request(url);
 	request.setRawHeader("Authorization", QByteArrayLiteral("Bearer ") + apiToken().toUtf8());
 
-	lInfo() << log().arg("Uploading recording:") << filePath << size << "bytes, attempt" << (attempts + 1);
+	lInfo() << log().arg("Uploading recording:") << filePath << size << "bytes, attempt" << (attempts + 1)
+	        << "call-id" << (metadata.callId.isEmpty() ? QStringLiteral("(none)") : metadata.callId);
 
 	auto *reply = mNetwork->post(request, multiPart);
 	multiPart->setParent(reply);
 	connect(reply, &QNetworkReply::finished, this,
-	        [this, reply, filePath, attempts]() { onReplyFinished(reply, filePath, attempts); });
+	        [this, reply, filePath, metadata, attempts]() { onReplyFinished(reply, filePath, metadata, attempts); });
 }
 
-void RecordingUploader::onReplyFinished(QNetworkReply *reply, const QString &filePath, int attempts) {
+void RecordingUploader::onReplyFinished(QNetworkReply *reply, const QString &filePath, const CallMetadata &metadata,
+                                        int attempts) {
 	mInFlight.remove(filePath);
 	reply->deleteLater();
 
@@ -246,14 +271,14 @@ void RecordingUploader::onReplyFinished(QNetworkReply *reply, const QString &fil
 	}
 
 	lWarning() << log().arg("Upload failed, will retry. HTTP") << status << message << filePath;
-	enqueue(filePath, attempts + 1);
+	enqueue(filePath, metadata, attempts + 1);
 }
 
 // -----------------------------------------------------------------------------
 // Retry queue
 // -----------------------------------------------------------------------------
 
-void RecordingUploader::enqueue(const QString &filePath, int attempts) {
+void RecordingUploader::enqueue(const QString &filePath, const CallMetadata &metadata, int attempts) {
 	if (attempts >= MaxAttempts) {
 		// Stop retrying, but say so plainly. The recording is still on disk, so this is
 		// recoverable by hand: nothing has been lost.
@@ -266,13 +291,16 @@ void RecordingUploader::enqueue(const QString &filePath, int attempts) {
 	for (auto &pending : mQueue) {
 		if (pending.filePath == filePath) {
 			pending.attempts = attempts;
+			// Keep whichever metadata is non-empty: a retry queued from a restart has none,
+			// and overwriting good metadata with a blank struct would lose the call facts.
+			if (!metadata.isEmpty()) pending.metadata = metadata;
 			saveQueue();
 			scheduleRetry();
 			return;
 		}
 	}
 
-	mQueue.enqueue({filePath, attempts});
+	mQueue.enqueue({filePath, attempts, metadata});
 	saveQueue();
 	scheduleRetry();
 }
@@ -309,7 +337,7 @@ void RecordingUploader::flushQueue() {
 			lInfo() << log().arg("Queued recording no longer exists, dropping:") << pending.filePath;
 			continue;
 		}
-		start(pending.filePath, pending.attempts);
+		start(pending.filePath, pending.metadata, pending.attempts);
 	}
 }
 
@@ -319,21 +347,56 @@ void RecordingUploader::loadQueue() {
 	const auto stored = settings.value(QueueKey).toStringList();
 	settings.endGroup();
 
-	// Stored as "attempts|path". The count goes first and only the first separator is
-	// significant, so a path containing '|' still round-trips.
+	// One JSON object per entry. Was "attempts|path" before call metadata existed; a
+	// non-JSON line is therefore a queue written by the previous version and is read with
+	// the old rule so a pending upload is not dropped on upgrade.
 	for (const auto &entry : stored) {
-		const int sep = entry.indexOf(u'|');
-		if (sep <= 0) continue;
-		const QString path = entry.mid(sep + 1);
-		if (!path.isEmpty()) mQueue.enqueue({path, entry.left(sep).toInt()});
+		const auto doc = QJsonDocument::fromJson(entry.toUtf8());
+		if (!doc.isObject()) {
+			const int sep = entry.indexOf(u'|');
+			if (sep <= 0) continue;
+			const QString path = entry.mid(sep + 1);
+			if (!path.isEmpty()) mQueue.enqueue({path, entry.left(sep).toInt(), {}});
+			continue;
+		}
+
+		const auto o = doc.object();
+		const QString path = o.value("path").toString();
+		if (path.isEmpty()) continue;
+
+		CallMetadata m;
+		m.callId = o.value("call_id").toString();
+		m.remoteAddress = o.value("remote_address").toString();
+		m.remoteName = o.value("remote_name").toString();
+		m.localAddress = o.value("local_address").toString();
+		m.direction = o.value("direction").toString();
+		m.status = o.value("status").toString();
+		m.encryption = o.value("encryption").toString();
+		m.durationSeconds = o.value("duration_seconds").toInt(-1);
+
+		mQueue.enqueue({path, o.value("attempts").toInt(), m});
 	}
 }
 
 void RecordingUploader::saveQueue() {
 	QStringList stored;
 	stored.reserve(mQueue.size());
-	for (const auto &pending : mQueue)
-		stored << QStringLiteral("%1|%2").arg(pending.attempts).arg(pending.filePath);
+	for (const auto &pending : mQueue) {
+		QJsonObject o;
+		o["path"] = pending.filePath;
+		o["attempts"] = pending.attempts;
+		// Only non-empty fields, so a restored entry cannot turn an absent value into "".
+		const auto &m = pending.metadata;
+		if (!m.callId.isEmpty()) o["call_id"] = m.callId;
+		if (!m.remoteAddress.isEmpty()) o["remote_address"] = m.remoteAddress;
+		if (!m.remoteName.isEmpty()) o["remote_name"] = m.remoteName;
+		if (!m.localAddress.isEmpty()) o["local_address"] = m.localAddress;
+		if (!m.direction.isEmpty()) o["direction"] = m.direction;
+		if (!m.status.isEmpty()) o["status"] = m.status;
+		if (!m.encryption.isEmpty()) o["encryption"] = m.encryption;
+		if (m.durationSeconds >= 0) o["duration_seconds"] = m.durationSeconds;
+		stored << QString::fromUtf8(QJsonDocument(o).toJson(QJsonDocument::Compact));
+	}
 
 	QSettings settings;
 	settings.beginGroup(QueueGroup);
