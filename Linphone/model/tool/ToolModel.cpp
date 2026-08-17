@@ -24,12 +24,14 @@
 #include "core/path/Paths.hpp"
 #include "model/core/CoreModel.hpp"
 #include "model/friend/FriendsManager.hpp"
+#include "tool/Constants.hpp"
 #include "tool/UriTools.hpp"
 #include "tool/Utils.hpp"
 #include <QDebug>
 #include <QDirIterator>
 #include <QLibrary>
 #include <QTest>
+#include <QUuid>
 
 DEFINE_ABSTRACT_OBJECT(ToolModel)
 
@@ -372,6 +374,24 @@ bool ToolModel::createCall(const QString &sipAddress,
 		iterator.next();
 		params->addCustomHeader(Utils::appStringToCoreString(iterator.key()),
 		                        Utils::appStringToCoreString(iterator.value()));
+	}
+
+	// Tag this INVITE with a fresh UUID so the recording we upload after hang-up can be joined
+	// to the provider-side call record. Only added if a caller did not already supply one:
+	// addCustomHeader appends rather than replaces, so minting unconditionally would put two
+	// X-Call-Tag headers on the wire.
+	//
+	// createUuid() is a version-4 random UUID with 122 random bits, drawn from the OS CSPRNG
+	// (CoCreateGuid on Windows, QRandomGenerator::system() elsewhere) -- not a counter or a
+	// timestamp, so two calls placed in the same second cannot collide. WithoutBraces gives the
+	// plain 8-4-4-4-12 hex form, which needs no quoting in a SIP header.
+	//
+	// Read back in CallCore's constructor via getParams()->getCustomHeader(), which works
+	// because the params are stored on the call and custom headers survive the clone. Nothing
+	// is cached here, so there is no per-call state to keep or clean up.
+	if (!headers.contains(Constants::CallTagHeader)) {
+		params->addCustomHeader(Constants::CallTagHeader,
+		                        Utils::appStringToCoreString(QUuid::createUuid().toString(QUuid::WithoutBraces)));
 	}
 
 	if (core->getDefaultAccount()) params->setAccount(core->getDefaultAccount());

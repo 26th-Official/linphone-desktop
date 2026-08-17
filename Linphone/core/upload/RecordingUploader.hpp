@@ -55,6 +55,7 @@ public:
 	// retry queue and to persist across a restart.
 	struct CallMetadata {
 		QString callId;        // SIP Call-ID -- the join key for a provider-side webhook
+		QString callTag;       // X-Call-Tag UUID we minted on the INVITE; outgoing calls only
 		QString remoteAddress; // sip:+31...@domain
 		QString remoteName;    // resolved display name, may be empty
 		QString localAddress;  // which local account took the call
@@ -64,7 +65,7 @@ public:
 		QString encryption;    // media encryption, may be empty
 
 		bool isEmpty() const {
-			return callId.isEmpty() && remoteAddress.isEmpty();
+			return callId.isEmpty() && callTag.isEmpty() && remoteAddress.isEmpty();
 		}
 	};
 

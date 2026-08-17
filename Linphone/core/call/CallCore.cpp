@@ -26,6 +26,7 @@
 #include "core/setting/SettingsCore.hpp"
 #include "core/upload/RecordingUploader.hpp"
 #include "model/tool/ToolModel.hpp"
+#include "tool/Constants.hpp"
 #include "tool/Utils.hpp"
 #include "tool/thread/SafeConnection.hpp"
 
@@ -125,6 +126,10 @@ CallCore::CallCore(const std::shared_ptr<linphone::Call> &call) : QObject(nullpt
 	mRemoteAddress = Utils::coreStringToAppString(remoteAddress->asStringUriOnly());
 	mRemoteUsername = Utils::coreStringToAppString(remoteAddress->getUsername());
 	mCallId = Utils::coreStringToAppString(call->getCallLog()->getCallId());
+	// The UUID ToolModel minted onto this INVITE, read straight back off the params rather than
+	// kept in a side table. Empty for incoming calls -- we never sent their INVITE -- and the
+	// wrapper maps a missing header to "" rather than crashing, so no null check is needed.
+	mCallTag = Utils::coreStringToAppString(callParams->getCustomHeader(Constants::CallTagHeader));
 	auto linphoneFriend = ToolModel::findFriendByAddress(remoteAddress);
 	if (linphoneFriend)
 		mRemoteName = Utils::coreStringToAppString(
@@ -238,6 +243,7 @@ void CallCore::setSelf(QSharedPointer<CallCore> me) {
 				    // useless as a machine-readable field on the server.
 				    RecordingUploader::CallMetadata metadata;
 				    metadata.callId = getCallId();
+				    metadata.callTag = getCallTag();
 				    metadata.remoteAddress = getRemoteAddress();
 				    metadata.remoteName = mRemoteName;
 				    metadata.localAddress = getLocalAddress();
@@ -571,6 +577,10 @@ QString CallCore::getLocalAddress() const {
 
 QString CallCore::getCallId() const {
 	return mCallId;
+}
+
+QString CallCore::getCallTag() const {
+	return mCallTag;
 }
 
 LinphoneEnums::CallStatus CallCore::getStatus() const {

@@ -149,6 +149,7 @@ public:
 	QString getLocalAddress() const;
 
 	QString getCallId() const;
+	QString getCallTag() const;
 
 	LinphoneEnums::CallStatus getStatus() const;
 	void setStatus(LinphoneEnums::CallStatus status);
@@ -337,6 +338,7 @@ private:
 	QString mRemoteAddress;
 	QString mLocalAddress;
 	QString mCallId;
+	QString mCallTag;
 	bool mTokenVerified = false;
 	bool mIsSecured = false;
 	bool mIsMismatch = false;

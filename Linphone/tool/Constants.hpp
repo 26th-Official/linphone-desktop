@@ -61,6 +61,14 @@ public:
 	static constexpr char DefaultUploadLogsServer[] =
 	    "https://files.linphone.org:443/http-file-transfer-server/hft.php";
 	static constexpr char RetiredUploadLogsServer[] = "https://www.linphone.org:444/lft.php";
+	// Custom SIP header carrying a per-call UUID on outgoing INVITEs, so a recording uploaded
+	// later can be matched to the provider-side call record (Telnyx webhook) without relying
+	// on timestamps. Must keep the "X-" prefix: Telnyx only forwards X- headers.
+	//
+	// Outgoing only, by construction: a header can only be minted onto an INVITE we send.
+	// Incoming calls have no tag and fall back to the SIP Call-ID.
+	static constexpr char CallTagHeader[] = "X-Call-Tag";
+
 	static constexpr char DefaultContactParameters[] = "message-expires=2419200";
 	static constexpr char DefaultContactParametersOnRemove[] = "message-expires=0";
 	static constexpr int DefaultExpires = 600;

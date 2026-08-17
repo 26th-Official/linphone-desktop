@@ -202,6 +202,7 @@ void RecordingUploader::send(const QString &filePath, const CallMetadata &metada
 		multiPart->append(part);
 	};
 	addField(QStringLiteral("call_id"), metadata.callId);
+	addField(QStringLiteral("call_tag"), metadata.callTag);
 	addField(QStringLiteral("remote_address"), metadata.remoteAddress);
 	addField(QStringLiteral("remote_name"), metadata.remoteName);
 	addField(QStringLiteral("local_address"), metadata.localAddress);
@@ -224,7 +225,8 @@ void RecordingUploader::send(const QString &filePath, const CallMetadata &metada
 	request.setRawHeader("Authorization", QByteArrayLiteral("Bearer ") + apiToken().toUtf8());
 
 	lInfo() << log().arg("Uploading recording:") << filePath << size << "bytes, attempt" << (attempts + 1)
-	        << "call-id" << (metadata.callId.isEmpty() ? QStringLiteral("(none)") : metadata.callId);
+	        << "call-id" << (metadata.callId.isEmpty() ? QStringLiteral("(none)") : metadata.callId) << "call-tag"
+	        << (metadata.callTag.isEmpty() ? QStringLiteral("(none)") : metadata.callTag);
 
 	auto *reply = mNetwork->post(request, multiPart);
 	multiPart->setParent(reply);
@@ -366,6 +368,7 @@ void RecordingUploader::loadQueue() {
 
 		CallMetadata m;
 		m.callId = o.value("call_id").toString();
+		m.callTag = o.value("call_tag").toString();
 		m.remoteAddress = o.value("remote_address").toString();
 		m.remoteName = o.value("remote_name").toString();
 		m.localAddress = o.value("local_address").toString();
@@ -388,6 +391,7 @@ void RecordingUploader::saveQueue() {
 		// Only non-empty fields, so a restored entry cannot turn an absent value into "".
 		const auto &m = pending.metadata;
 		if (!m.callId.isEmpty()) o["call_id"] = m.callId;
+		if (!m.callTag.isEmpty()) o["call_tag"] = m.callTag;
 		if (!m.remoteAddress.isEmpty()) o["remote_address"] = m.remoteAddress;
 		if (!m.remoteName.isEmpty()) o["remote_name"] = m.remoteName;
 		if (!m.localAddress.isEmpty()) o["local_address"] = m.localAddress;
